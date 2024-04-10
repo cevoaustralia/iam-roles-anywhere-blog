@@ -1,0 +1,93 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Description: IAM Roles Anywhere Resources to deploy CDK
+
+Parameters:
+  X509CertificateData:
+    Type: String
+    Description: CA Certificate
+    # Note the default below is an exmaple of how the CA certificate should be formatted - we used the command awk 'NF {sub(/\r/, ""); printf "%s\\n",$0;}' [filename] to get it into one line 
+    Default: "-----BEGIN CERTIFICATE-----\nMIIDFzCCAf+gAwIBAgIUV+lDvYaPOkxbZnZ0Yr2tGiyX2/gwDQYJKoZIhvcNAQEL\nBQAwEzERMA8GA1UEAwwIY2V2by1kZXYwHhcNMjQwNDEwMDQwMTAwWhcNMjkwNDEw\nMDQwMTAwWjATMREwDwYDVQQDDAhjZXZvLWRldjCCASIwDQYJKoZIhvcNAQEBBQAD\nggEPADCCAQoCggEBAL6N7SEW+2lgDPb6sN1hOMRzfKqrDXWdFB0Kb3Dv3DgWOiso\n5rQXBMZ6BhgPAG/iiiwYKotVrGZWGkNSYgQ56AR9c+guRUKB0ige8x0wn3HvStkO\nqJVnMwizyp13P/DkC6f2kketKGUpkNZXfZVMRo6HFf+RcJUpFrV51FxVPZ7s8etP\npDWLGijd6NK1Bb+KzJk1ZVLN0c7kFaM7F04INmh+3ozSnCxUQ7PDo4PRmqjaGupS\nNyqw8cqCDR2vBAGn/K8q80WFqffWXQbEy+BQAIQV8asct6/i6qzANjS5ByTF/v6d\nD56Mrs1ZGOwOMQg4+epeh9KSR35kj+WdBwn3mSkCAwEAAaNjMGEwHQYDVR0OBBYE\nFAFHQ0yDk/tUzjmBlJzUl5kTFz4lMB8GA1UdIwQYMBaAFAFHQ0yDk/tUzjmBlJzU\nl5kTFz4lMA4GA1UdDwEB/wQEAwIBhjAPBgNVHRMBAf8EBTADAQH/MA0GCSqGSIb3\nDQEBCwUAA4IBAQC4KpMQLX3/0NaDz/7DTOpRMW7VefJR2pX0lVQHRJImiZdyqFWc\nxeP5xAv3PAwujHe+lrLZ/u2rjVGPYUyFUcLlXeQAoN5BTO+qXWNLCYSUSVAdU4Ja\nb5xL7Om0Tz/dUwkwPPSbjFN0+7A/N8eJy2pD8GXs2Cjumjgs5m25/ZgFF1DXsq18\nsfxgklEKAsxMiAotp+VG6vRlDZWpON5rqfhyQDdmO4KNBA/Zbm5nlKkqrIGMMAuT\noa5SL7swjpJnjeYjbbytPYjyahlp8I8dOftSSVHC0wKpGa+gSaXPeKnHyHEoIMY2\nvIVr1XV9LjgZtfRRA3ZCuXjfZs4u673rAqFb\n-----END CERTIFICATE-----"
+  CN: 
+    Type: String
+    Description: Common Name for certificate used in the IAM Role to establish Trust
+
+Resources:
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: rolesanywhere.amazonaws.com
+          Action:
+            - sts:AssumeRole
+            - sts:TagSession
+            - sts:SetSourceIdentity
+          Condition:
+            StringEquals:
+              "aws:PrincipalTag/x509Subject/CN": !Ref CN
+            ArnEquals:
+              aws:SourceArn: !GetAtt TrustAnchor.TrustAnchorArn
+      RoleName: 'cdk-roles-anywhere-role'
+      Tags:
+        - Key: Environment
+          Value: Dev
+        - Key: Application
+          Value: IamRolesAnywhere          
+
+  Policy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: AllowCDKBootstrapPassRole
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Effect: Allow
+          Action:
+            - sts:AssumeRole
+            - sts:SetSourceIdentity
+            - sts:TagSession
+          Resource: !Sub 'arn:aws:iam::${AWS::AccountId}:role/cdk-*'
+      Roles:
+      - !Ref Role
+
+  Profile:
+    Type: AWS::RolesAnywhere::Profile
+    Properties:
+      DurationSeconds: 3600
+      Enabled: true
+      Name: 'azure-cdk-roles-anywhere-profile'
+      RoleArns:
+        - !GetAtt Role.Arn
+      Tags:
+        - Key: Environment
+          Value: Prod
+        - Key: Application
+          Value: IamRolesAnywhere
+
+  TrustAnchor:
+    Type: AWS::RolesAnywhere::TrustAnchor
+    Properties:
+      Enabled: true
+      Name: 'azure-cdk-trust-anchor'
+      Source:
+        SourceType: CERTIFICATE_BUNDLE
+        SourceData:
+          X509CertificateData: !Ref X509CertificateData
+      Tags:
+        - Key: Environment
+          Value: Prod
+        - Key: Application
+          Value: IamRolesAnywhere
+
+
+Outputs:
+  TrustAnchorArn:
+    Value: !GetAtt TrustAnchor.TrustAnchorArn
+  ProfileArn:
+    Value: !GetAtt Profile.ProfileArn
+  RoleArn:
+    Value: !GetAtt Role.Arn
